@@ -13,7 +13,7 @@ use Imager::Color::Float;  # It is absurd that I have to do this.
 use LWP;
 use Regexp::Common qw/URI/;
 
-our $VERSION = "0.1";
+our $VERSION = "0.2";
 our @EXPORT_OK = qw/compare/;
 
 use constant EXACT => 1;
@@ -496,7 +496,8 @@ any of 3 arguments, each of which takes a hash reference as data, which
 corresponds exactly to the semantics of the C<set_*> methods, as described
 below.
 
-=item $cmp->set_image[12](img => $data, type => $type)
+=item $cmp->set_image1(img => $data, type => $type)
+=item $cmp->set_image2(img => $data, type => $type)
 
 Sets the data for the appropriate image based on the input parameters.
 The C<img> parameter can either be an C<Imager> object, a file path or a URL.

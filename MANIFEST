@@ -8,6 +8,8 @@ t/basic.t
 t/exact.t
 t/helper.pm
 t/image.t
+t/pod.t
+t/pod_cover.t
 t/sample.png
 t/threshold.t
 META.yml                                 Module meta-data (added by MakeMaker)
