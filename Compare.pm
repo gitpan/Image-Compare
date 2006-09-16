@@ -3,7 +3,7 @@
 
 package Image::Compare;
 
-require 5;
+use 5.006;
 use strict;
 use warnings;
 
@@ -13,7 +13,7 @@ use Imager::Color::Float;  # It is absurd that I have to do this.
 use LWP;
 use Regexp::Common qw/URI/;
 
-our $VERSION = "0.2";
+our $VERSION = "0.3";
 our @EXPORT_OK = qw/compare/;
 
 use constant EXACT => 1;
@@ -76,6 +76,17 @@ sub set_image2 {
 	my $self = shift;
 	my %args = @_;
 	$self->{_IMG2} = _get_image($args{img}, $args{type});
+}
+
+# Get back the Imager objects created by the preceding two methods.
+sub get_image1 {
+	my $self = shift;
+	return $self->{_IMG1};
+}
+
+sub get_image2 {
+	my $self = shift;
+	return $self->{_IMG2};
 }
 
 # Given input as defined above, returns an Imager object representing the
@@ -162,6 +173,29 @@ sub set_method {
 	}
 }
 
+sub get_method {
+	my $self = shift;
+	my %ret;
+	unless ($self->{_CMP}) {
+		return %ret;
+	}
+	if ($self->{_CMP}->isa("Image::Compare::_THRESHOLD")) {
+		if ($self->{_CMP}->get_args() == 0) {
+			$ret{method} = &EXACT;
+			return %ret;
+		}
+		$ret{method} = &THRESHOLD;
+	}
+	elsif ($self->{_CMP}->isa("Image::Compare::_AVG_THRESHOLD")) {
+		$ret{method} = &AVG_THRESHOLD;
+	}
+	elsif ($self->{_CMP}->isa("Image::Compare::_IMAGE")) {
+		$ret{method} = &IMAGE;
+	}
+	$ret{args} = $self->{_CMP}->get_args();
+	return %ret;
+}
+
 # Compares two images and returns a result.
 sub compare {
 	my $self;
@@ -234,6 +268,11 @@ sub new {
 
 sub err {
 	return undef;
+}
+
+sub get_args {
+	my $self = shift;
+	return $self->{args};
 }
 
 package Image::Compare::_THRESHOLD;
@@ -434,7 +473,6 @@ otherwise.  It takes no arguments.
 
 =item THRESHOLD
 
-
 The THRESHOLD method returns true if no pixel difference between the two images
 exceeds a certain threshold, and false if even one does.  Note that differences
 are measured in a sum of squares fashion (vector distance), so the maximum
@@ -507,10 +545,22 @@ from the input.  Again, the image type used must be one supported by your
 C<Imager> install, and its format is determined entirely by C<Imager>.  See
 the documentation on C<Imager::Files> for a list of image types.
 
+=item $cmp->get_image1()
+=item $cmp->get_image2()
+
+Returns the underlying Imager object for the appropriate image, as created
+inside of $cmp by either of the previous two methods.
+
 =item $cmp->set_method(method => $method, args => $args)
 
 Sets the comparison method for the object.  See the section above for details
 on different comparison methods.
+
+=item $cmp->get_method()
+
+Returns a hash describing the method as set by the call previous.  In this
+hash, the key "method" will map to the method, and the key "args" will map
+to the arguments (if any).
 
 =item $cmp->compare()
 
@@ -549,12 +599,6 @@ simple and painless.
 
 I bet the input processing could be more bulletproof.  I am pretty certain of
 it, in fact.
-
-=item *
-
-I should probably make accessor methods for the 3 mutators that already exist.
-I couldn't think of a good reason for it though, and I'm lazy.  If enough (1)
-people request it though, I'll put it in.
 
 =item *
 
