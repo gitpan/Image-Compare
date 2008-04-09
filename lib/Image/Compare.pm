@@ -1,36 +1,48 @@
-# Image::Compare, used to find if two images differ significantly from one
-# another.
+# Image::Compare, a module based on the great Imager, used to determine if
+# two images differ greatly from one another.
 
 package Image::Compare;
 
-use 5.006;
 use strict;
 use warnings;
 
-use base qw/Exporter/;
 use Imager;
-use Imager::Color::Float;  # It is absurd that I have to do this.
-use LWP;
-use Regexp::Common qw/URI/;
 
-our $VERSION = "0.3";
+# This is the base class for all comparators, and will also do the work of
+# loading all supplied implementations.
+use Image::Compare::Comparator;
+
+our %class_map;
+
+my $loaded_lwp;
+
+BEGIN {
+	$loaded_lwp = 0;
+	eval "require LWP;";
+	unless ($@) { $loaded_lwp = 1; }
+}
+
+our $VERSION = "0.5";
+
+# If people don't want to deal with OO, we export the main "work" method
+# so they can call it in a simpler way.  We'll see below where we handle this.
+use base qw/Exporter/;
 our @EXPORT_OK = qw/compare/;
-
-use constant EXACT => 1;
-use constant THRESHOLD => 2;
-use constant IMAGE => 3;
-use constant AVG_THRESHOLD => 4;
-
-use constant MEAN => 1;
-use constant MEDIAN => 2;
 
 ##   Public methods begin here
 
 # The constructor method.
 # Takes a hash of arguments:  (all are optional)
-#   image1 => <Imager object or file name representing the first image>
-#   image2 => <Imager object or file name representing the second image>
-#   method => <Integer constant representing the comparison method>
+#   image1 =>
+#     Data representing the first image, either as an Imager object, file
+#     name or a URL.
+#   type1  => Type of image provided.
+#   image2 => Like image1.
+#   type2  => Like type1.
+#   method =>
+#     Either the numeric constant representing the comparator, or an
+#     instance of a comparator.
+#   args  => Arguments to pass to the comparator.
 # See the documentation on the relevant option setters for more details
 sub new {
 	my $proto = shift;
@@ -57,14 +69,16 @@ sub new {
 			args => $args{args}
 		);
 	}
+	if ($args{mask}) {
+		$self->set_mask(mask => $args{mask});
+	}
 	return $self;
 }
 
 # The next two just use the input to fetch image data and store it as an
 # Imager object.  Currently supported image types:
-#   File handle
-#   File name
 #   Imager object
+#   File name
 #   URL
 sub set_image1 {
 	my $self = shift;
@@ -83,10 +97,20 @@ sub get_image1 {
 	my $self = shift;
 	return $self->{_IMG1};
 }
-
 sub get_image2 {
 	my $self = shift;
 	return $self->{_IMG2};
+}
+
+# How to set the matching mask parameter for this compaison instance.
+sub set_mask {
+	my $self = shift;
+	my %args = @_;
+	$self->{_MASK} = $args{mask};
+}
+sub get_mask {
+	my $self = shift;
+	return $self->{_MASK};
 }
 
 # Given input as defined above, returns an Imager object representing the
@@ -96,104 +120,86 @@ sub _get_image {
 	unless ($img) {
 		die "Missing 'img' parameter";
 	}
-	# This is the simplest case
-	if (ref($img) eq 'Imager') {
-		return $img;
-	}
-	my $errmsg = "Unable to read image data from ";
-	my %args;
-	$args{type} = $type;
-	if (!ref($img)) {
-		if ($RE{URI}->matches($img)) {
-			$errmsg .= "URL '$img'";
-			my $ua = LWP::UserAgent->new();
-			$ua->agent("Image::Compare/v$VERSION ");
-			my $res = $ua->request(HTTP::Request->new(GET => $img));
-			$args{data} = $res->content();
-			if (!$type) {
-				$args{type} = $res->content_type();
-				$args{type} =~ s!^image/!!;
-			}
+
+	# If we've been given an Imager object, we need only store it.
+	if (ref($img)) {
+		if ($img->isa('Imager')) {
+			return $img;
 		}
-		else {
-			$errmsg .= "file '$img'";
-			$args{file} = $img;
+		# If it wasn't an Imager, but it's still some kind of reference, then
+		# we have to give up.
+		die "Unrecognized input type: '" . ref($img) . "'";
+	}
+	
+	# Otherwse, we need to construct an Imager object, and to do that, we
+	# need to build up an arguments hash for the Imager constructor.
+	my %args;
+	if ($type) {
+		# Provide the type argument to image, if it was provided.
+		$args{type} = $type;
+	}
+	# This is the base error message.
+	my $errmsg = "Unable to read image data from ";
+	# If $img looks like a URL, and if we were able to load LWP, then we might
+	# be able to fetch an image via a URL.
+	if ($loaded_lwp && ($img =~ /^https?:\/\//)) {
+		$errmsg .= "URL '$img'";
+		my $ua = LWP::UserAgent->new();
+		$ua->agent("Image::Compare/v$VERSION ");
+		my $res = $ua->request(HTTP::Request->new(GET => $img));
+		$args{data} = $res->content();
+		if (!$type) {
+			$args{type} = $res->content_type();
+			$args{type} =~ s!^image/!!;
 		}
 	}
 	else {
-		die "Unrecognized input type: '" . ref($img) . "'";
+		# Otherwise, we have to think it's a file path.
+		$errmsg .= "file '$img'";
+		$args{file} = $img;
 	}
-	my $new = Imager->new();
-	$new->read(%args) || die($errmsg . ": '" . $new->{ERRSTR} . "'");
-	return $new;
+	my $newimg = Imager->new();
+	$newimg->read(%args) || die($errmsg . ": '" . $newimg->{ERRSTR} . "'");
+	return $newimg;
 }
 
-# This sets the comparison method and any arguments required, if any.
-# The currently-supported methods, and their arguments, are:
-#    EXACT:
-#      Returns true if two images are exactly the same.
-#      No arguments
-#    THRESHOLD:
-#      Returns true if no single-pixel difference in the images is greater
-#      than a threshold value.
-#      One required argument is the threshold value.
-#    AVG_THRESHOLD:
-#      Returns true if the average pixel difference of the two images is
-#      lower than a given threshold value.
-#      The required argument is a hash ref with the following required keys:
-#          type => Must be one of the constants MEAN or MEDIAN
-#          value => The threshold value
-#    IMAGE:
-#      Returns an Imager object for an image representing the pixel-by-pixel
-#	     differences between the two images.  Returns undef on error.
-#      There is one optional argument.  If it is provided and true then
-#      the output will be in color, otherwise output will be grayscale.
-#      Color output is on a red to green to blue gradient, so the most
-#      change will be blue and the least, red.
+# Sets the comparison method.  Either takes the numeric constant that
+# identifies the method and any arguments needed by the method, or an instance
+# of the comparator.  See the documentation for Image::Compare::Comparator or
+# it subclasses for more details.
 sub set_method {
 	my $self = shift;
 	my %args = @_;
-	if (!$args{method}) {
+	unless ($args{method}) {
 		die "Missing required argument 'method'";
 	}
-	if ($args{method} == &EXACT) {
-		$self->{_CMP} = Image::Compare::_THRESHOLD->new(0);
-	}
-	elsif ($args{method} == &THRESHOLD) {
-		$self->{_CMP} = Image::Compare::_THRESHOLD->new($args{args});
-	}
-	elsif ($args{method} == &AVG_THRESHOLD) {
-		$self->{_CMP} = Image::Compare::_AVG_THRESHOLD->new($args{args});
-	}
-	elsif ($args{method} == &IMAGE) {
-		$self->{_CMP} = Image::Compare::_IMAGE->new($args{args});
+	if (ref($args{method})) {
+		if ($args{method}->isa('Image::Compare::Comparator')) {
+			$self->{_CMP} = $args{method};
+		}
+		else {
+			die (
+				"Unrecognized type for 'method' argument: '" .
+				ref($args{method}) . "'"
+			);
+		}
 	}
 	else {
-		die "Unrecognized method: '$args{method}'";
+		unless ($class_map{$args{method}}) {
+			die "Unrecognized method identifier: '$args{method}'";
+		}
+		$self->{_CMP} = $class_map{$args{method}}->new($args{args});
 	}
 }
 
+# Returns information describing the comparison method set into this instance
+# of an Image::Compare.
 sub get_method {
 	my $self = shift;
-	my %ret;
 	unless ($self->{_CMP}) {
-		return %ret;
+		return wantarray ? () : undef;
 	}
-	if ($self->{_CMP}->isa("Image::Compare::_THRESHOLD")) {
-		if ($self->{_CMP}->get_args() == 0) {
-			$ret{method} = &EXACT;
-			return %ret;
-		}
-		$ret{method} = &THRESHOLD;
-	}
-	elsif ($self->{_CMP}->isa("Image::Compare::_AVG_THRESHOLD")) {
-		$ret{method} = &AVG_THRESHOLD;
-	}
-	elsif ($self->{_CMP}->isa("Image::Compare::_IMAGE")) {
-		$ret{method} = &IMAGE;
-	}
-	$ret{args} = $self->{_CMP}->get_args();
-	return %ret;
+	return $self->{_CMP}->get_representation();
 }
 
 # Compares two images and returns a result.
@@ -208,189 +214,22 @@ sub compare {
 		if ($_[0] eq 'Image::Compare') {
 			shift;
 		}
-		# Or just as a normal method, with the normal arguments to "new"
+		# Or just as a plain method.  In either case, we just need to construct
+		# a $self so we can get on with life.
 		$self = Image::Compare->new(@_);
 	}
 	# Sanity checking
-	unless ($self->{_IMG1}) {
-		die "Image 1 not specified";
-	}
-	unless ($self->{_IMG2}) {
-		die "Image 2 not specified";
-	}
-	unless ($self->{_CMP}) {
-		die "Comparison method not specified";
-	}
-	# If the images are different dimensions then we can be pretty sure they're
-	# not the same.
-	if (
-		($self->{_IMG1}->getheight() != $self->{_IMG2}->getheight()) ||
-		($self->{_IMG1}->getwidth()  != $self->{_IMG2}->getwidth() )
+	for my $ref (
+		['IMG1', 'Image 1'], ['IMG2', 'Image 2'], ['CMP', 'Comparison method'],
 	) {
-		return $self->{_CMP}->err();
+		die "$ref->[1] not specified" unless $self->{"_$ref->[0]"};
 	}
-	# This comparator object needs some special data
-	if (ref($self->{_CMP}) eq 'Image::Compare::_IMAGE') {
-		$self->{_CMP}->setup_img_dimensions(
-			$self->{_IMG1}->getwidth(),
-			$self->{_IMG1}->getheight(),
-		);
-	}
-	# Do the comparison
-	for my $i (0 .. ($self->{_IMG1}->getwidth() - 1)) {
-		for my $j (0 .. ($self->{_IMG1}->getheight() - 1)) {
-			my @pix1 = $self->{_IMG1}->getpixel(x => $i, y => $j)->rgba();
-			my @pix2 = $self->{_IMG2}->getpixel(x => $i, y => $j)->rgba();
-			my $diff = sqrt(
-				( ($pix1[0] - $pix2[0]) ** 2 ) +
-				( ($pix1[1] - $pix2[1]) ** 2 ) +
-				( ($pix1[2] - $pix2[2]) ** 2 )
-			);
-			my $res = $self->{_CMP}->accumulate($diff, $i, $j);
-			if (defined($res)) {
-				return $res;
-			}
-		}
-	}
-	return $self->{_CMP}->result();
-}
 
-package Image::Compare::_Comparator;
-
-sub new {
-	my $proto = shift;
-	my $class = ref($proto) || $proto;
-	my $self = {};
-	$self->{args} = shift;
-	bless($self, $class);
-	return $self;
-}
-
-sub err {
-	return undef;
-}
-
-sub get_args {
-	my $self = shift;
-	return $self->{args};
-}
-
-package Image::Compare::_THRESHOLD;
-
-our @ISA = qw/Image::Compare::_Comparator/;
-
-sub accumulate {
-	my $self = shift;
-	my $diff = shift;
-	if ($diff > $self->{args}) {
-		return 0;
-	}
-	return undef;
-}
-
-sub result { return 1; }
-
-package Image::Compare::_AVG_THRESHOLD;
-
-our @ISA = qw/Image::Compare::_Comparator/;
-
-sub accumulate {
-	my $self = shift;
-	if ($self->{args}{type} == &Image::Compare::MEAN) {
-		$self->{count}++;
-		$self->{sum} += shift();
-	}
-	elsif ($self->{args}{type} == &Image::Compare::MEDIAN) {
-		push(@{$self->{scores}}, shift());
-	}
-	else {
-		die "Unrecognized average type: '$self->{args}{type}'";
-	}
-	return undef;
-}
-
-sub result {
-	my $self = shift;
-	my $val = 0;
-	if ($self->{args}{type} == &Image::Compare::MEAN) {
-		$val = $self->{sum} / $self->{count};
-	}
-	elsif ($self->{args}{type} == &Image::Compare::MEDIAN) {
-		my @vals = sort @{$self->{scores}};
-		if (@vals % 2) {
-			# Return the middle value
-			$val = $vals[(@vals / 2)];
-		}
-		else {
-			# Return the mean of the middle two values
-			$val  = $vals[ @vals / 2     ];
-			$val += $vals[(@vals / 2) - 1];
-			$val /= 2;
-		}
-	}
-	return $val <= $self->{args}{value};
-}
-
-package Image::Compare::_IMAGE;
-
-our @ISA = qw/Image::Compare::_Comparator/;
-
-sub setup_img_dimensions {
-	my $self = shift;
-	$self->{count} = 0;
-	$self->{img} = Imager->new(
-		xsize => $_[0],
-		ysize => $_[1],
+	# Give the images to the comparator and let them compare them.
+	# The comparator will raise an exception if anything's wrong.
+	return $self->{_CMP}->compare_images(
+		@{$self}{qw/_IMG1 _IMG2 _MASK/}
 	);
-}
-
-sub accumulate {
-	my $self = shift;
-	my($diff, $x, $y) = @_;
-	my $color;
-	if ($self->{args}) {
-		# Color output
-		# TODO: Model this color ramp as an Imager::Fountain, and get the color
-		# from that.
-		# TODO: Let users pass in their own fountains.
-		$color = [0, 0, 0];
-		if ($diff < 221) {
-			$color->[0] = round(255 - (255 * $diff / 221));
-			$color->[1] = round(255 * $diff / 221);
-		}
-		elsif ($diff == 221) {
-			$color->[1] = 255;
-		}
-		else {
-			$color->[1] = round(255 - (255 * ($diff - 221) / 221));
-			$color->[2] = round(255 * ($diff - 221) / 221);
-		}
-	}
-	else {
-		# Grayscale output
-		$color = [(round($diff * 255 / 441.7)) x 3];
-	}
-	$self->{img}->setpixel(
-		x     => $x,
-		y     => $y,
-		color => $color,
-	);
-	$self->{count}++;
-	return undef;
-}
-
-sub result {
-	my $self = shift;
-	return $self->{img};
-}
-
-sub round {
-	my $in = shift;
-	$in =~ s/\.(\d)\d*//;
-	if ($1 && ($1 > 5)) {
-		$in++;
-	}
-	return $in;
 }
 
 1;
@@ -485,6 +324,18 @@ argument of 0.)
      args   => 50,
  );
 
+=item THRESHOLD_COUNT
+
+The THRESHOLD_COUNT method works similarly to the THRESHOLD method, but instead
+of immediately returning a false value as soon as it finds a pixel pair whose
+difference exceeds the threshold, it simply counts the number of pixels pairs
+that exceed that threshold in the image pair. It returns that count.
+
+ $cmp->set_method(
+     method => &Image::Compare::THRESHOLD_COUNT,
+     args   => 50,
+ );
+
 =item AVG_THRESHOLD
 
 The AVG_THRESHOLD method returns true if the average difference over all pixel
@@ -520,19 +371,33 @@ maximum change, and then to pure blue at maximum change.
 
 =back
 
+=head1 MATCHMASKS
+
+In addition to providing the two images which are to be compared, you may
+also provide a "mask" image which will define a subset of those images to
+compare.  A mask must be an Imager object, with one channel and 8 bit color
+depth per channel.  Image processing will not occur for any pixel in the
+test images which correspond to any pixel in the mask image with a color
+value of (255, 255, 255), that is, black.
+
+Put another way, the pure black section of the mask image effectively "hide"
+that section of the test images, and those pixels will be ignored during
+processing.  What that means will differ from comparator to comparator, but
+should be obviously predictable in nature.
+
 =head1 METHODS
 
 =over 4
 
-
 =item new()
 
-=item new(image1 => { .. }, image2 => { .. }, method => { .. })
+=item new(image1 => { .. }, image2 => { .. }, method => { .. }, ..)
 
 This is the constructor method for the class.  You may optionally pass it
 any of 3 arguments, each of which takes a hash reference as data, which
 corresponds exactly to the semantics of the C<set_*> methods, as described
-below.
+below.  You may optionally pass in a match mask argument using the "mask"
+argument, which must be an Imager object, as described above.
 
 =item $cmp->set_image1(img => $data, type => $type)
 =item $cmp->set_image2(img => $data, type => $type)
@@ -544,6 +409,9 @@ argument is optional, and will be used to override the image type deduced
 from the input.  Again, the image type used must be one supported by your
 C<Imager> install, and its format is determined entirely by C<Imager>.  See
 the documentation on C<Imager::Files> for a list of image types.
+
+Note that providing images as URLs requires that both LWP and Regexp::Common
+be available in your kit.
 
 =item $cmp->get_image1()
 =item $cmp->get_image2()
@@ -561,6 +429,14 @@ on different comparison methods.
 Returns a hash describing the method as set by the call previous.  In this
 hash, the key "method" will map to the method, and the key "args" will map
 to the arguments (if any).
+
+=item $cmp->set_mask(mask => $mask)
+
+Sets the match mask parameter as described above.
+
+=item $cmp->get_mask()
+
+Returns the match mask (if any) currently set in this object.
 
 =item $cmp->compare()
 
@@ -602,15 +478,8 @@ it, in fact.
 
 =item *
 
-I'd like to make it so users can define their own color functions to be used
-in creating the output for the IMAGE comparison method.  I will probably do
-this using Imager::Color::Fountain objects, but that is kind of tricky, so
-I'm leaving it out for now.
-
-=item *
-
-I don't think I'm doing the whole required modules thing correctly, and I
-should probably make it so that it can operate without LWP or Regexp::Common.
+Maybe I could be more lenient with the format for masks.  I'll leave it up
+to user request to see how I could extend that interface.
 
 =back
 
@@ -626,7 +495,7 @@ None at this time.
 
 =head1 AUTHOR
 
-Copyright 2006 Avi Finkel <F<avi@finkel.org>>
+Copyright 2008 Avi Finkel <F<avi@finkel.org>>
 
 This package is free software and is provided "as is" without express
 or implied warranty.  It may be used, redistributed and/or modified
