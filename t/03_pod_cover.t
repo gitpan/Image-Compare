@@ -8,5 +8,9 @@ for my $module (qw/
 	Image::Compare::IMAGE
 	Image::Compare::THRESHOLD_COUNT
 /) {
-	pod_coverage_ok($module, "$module documentation coverage");
+	pod_coverage_ok(
+		$module,
+		{ also_private => [qw/MEAN MEDIAN/] },
+		"$module documentation coverage"
+	);
 }

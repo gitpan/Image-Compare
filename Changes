@@ -22,3 +22,7 @@ Version 0.5 : 4/6/08 14:45
 	 Added support for user-provided color gradients
    Added match mask support
 	 I'm not sure where 0.4 went.
+
+Version 0.6 : 5/1/10 00:32
+
+	Fixing some Pod::Coverage problems
