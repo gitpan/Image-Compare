@@ -10,15 +10,21 @@ $cmp->set_image1(img => Imager->new(xsize => 50, ysize => 50));
 isa_ok($cmp->{_IMG1}, 'Imager', 'set_image with Imager');
 
 # Test adding an image as a URL using set_image1
-# We only do this test if we have the right modules around.
 SKIP: {
-	eval "use LWP;";
+	# We only do this test if we have the right modules around.
+	eval "use LWP::Simple;";
 	skip('Missing LWP', 2) if $@;
 
-	$cmp = Image::Compare->new();
-	$cmp->set_image1(
-		img => 'http://mirrors.cpan.org/img/cpanlog.jpg',
+	# We'll also make sure we have a reasonable network connection.
+	# Really, this test is kind of stupid.  I'm stupid.
+	my $url = 'http://mirrors.cpan.org/img/cpanlog.jpg';
+	my($content_type) = head($url);
+	skip('No network', 2) unless (
+		$content_type && $content_type eq 'image/jpeg'
 	);
+
+	$cmp = Image::Compare->new();
+	$cmp->set_image1(img => $url);
 	isa_ok($cmp->{_IMG1}, 'Imager',       'set_image1 with URL'      );
 	ok(($cmp->{_IMG1}->getwidth() == 88), 'Image fetched as expected');
 };
