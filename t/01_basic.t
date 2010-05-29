@@ -11,17 +11,23 @@ isa_ok($cmp->{_IMG1}, 'Imager', 'set_image with Imager');
 
 # Test adding an image as a URL using set_image1
 SKIP: {
-	# We only do this test if we have the right modules around.
-	eval "use LWP::Simple;";
-	skip('Missing LWP', 2) if $@;
-
-	# We'll also make sure we have a reasonable network connection.
-	# Really, this test is kind of stupid.  I'm stupid.
 	my $url = 'http://mirrors.cpan.org/img/cpanlog.jpg';
-	my($content_type) = head($url);
-	skip('No network', 2) unless (
-		$content_type && $content_type eq 'image/jpeg'
-	);
+	# There's a number of reasons to skip this test.
+	# A lot of reasons, actually.  It's hardly worth the trouble.
+	# Really, this test is kind of stupid.  I'm stupid.
+	eval {
+		# Make sure that imager supports JPEG.
+		die 'JPEG not supported' unless $Imager::formats{'jpeg'};
+		# We only do this test if we have the right modules around.
+		eval 'use LWP::Simple;';
+		die 'Missing LWP' if $@;
+		# We'll also make sure we have a reasonable network connection.
+		my($content_type) = head($url);
+		die 'No network' unless (
+			$content_type && $content_type eq 'image/jpeg'
+		);
+	};
+	skip($@, 2) if $@;
 
 	$cmp = Image::Compare->new();
 	$cmp->set_image1(img => $url);
