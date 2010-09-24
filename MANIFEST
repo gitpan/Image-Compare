@@ -31,4 +31,6 @@ t/07_threshold.t
 t/08_threshold_count.t
 t/09_matchmask.t
 t/helper.pm
+t/sample.gif
+t/sample.jpeg
 t/sample.png

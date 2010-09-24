@@ -35,21 +35,36 @@ SKIP: {
 	ok(($cmp->{_IMG1}->getwidth() == 88), 'Image fetched as expected');
 };
 
-# Test adding an image as a file path using set_image1
-$cmp = Image::Compare->new();
-$cmp->set_image1(img => 't/sample.png');
-isa_ok($cmp->{_IMG1}, 'Imager',       'set_image1 with path'      );
-ok(($cmp->{_IMG1}->getwidth() == 48), 'Image loaded as expected 1');
+SKIP: {
+	my $img;
+	for my $ext (qw/gif jpeg png/) {
+		if ($Imager::formats{$ext}) {
+			$img = "t/sample.$ext";
+			last;
+		}
+	}
+	skip(
+		"You don't support GIF, JPEG *or* PNG.  " +
+		"I'm not sure how you're going to use this module.",
+		6
+	) unless defined $img;
 
-# Now let's test set_image2.  This test need only verify the basic
-# functionality and not be as exhaustive as those before.
-$cmp->set_image2(img => 't/sample.png');
-isa_ok($cmp->{_IMG2}, 'Imager',       'set_image2 with path'      );
-ok(($cmp->{_IMG2}->getwidth() == 48), 'Image loaded as expected 2');
+	# Test adding an image as a file path using set_image1
+	$cmp = Image::Compare->new();
+	$cmp->set_image1(img => $img);
+	isa_ok($cmp->{_IMG1}, 'Imager',       'set_image1 with path'      );
+	ok(($cmp->{_IMG1}->getwidth() == 48), 'Image loaded as expected 1');
 
-# Test out get_image[12].
-ok(($cmp->get_image1()->getwidth() == 48), 'get_image1');
-ok(($cmp->get_image2()->getwidth() == 48), 'get_image2');
+	# Now let's test set_image2.  This test need only verify the basic
+	# functionality and not be as exhaustive as those before.
+	$cmp->set_image2(img => $img);
+	isa_ok($cmp->{_IMG2}, 'Imager',       'set_image2 with path'      );
+	ok(($cmp->{_IMG2}->getwidth() == 48), 'Image loaded as expected 2');
+
+	# Test out get_image[12].
+	ok(($cmp->get_image1()->getwidth() == 48), 'get_image1');
+	ok(($cmp->get_image2()->getwidth() == 48), 'get_image2');
+}
 
 # Test out set_method
 $cmp->set_method(
