@@ -38,3 +38,8 @@ Version 0.8 : 5/29/10 12:22
 Version 0.9 : 9/23/10 22:33
 
 	I really hope this is the last time I have to fix this test.
+
+Version 1.0: 12/16/14 1:06
+
+    Adding some clarity to the documentation around the IMAGE output method.
+    Thanks to Daniel Gempesaw for the patch!

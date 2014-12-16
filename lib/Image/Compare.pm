@@ -22,7 +22,7 @@ BEGIN {
 	unless ($@) { $loaded_lwp = 1; }
 }
 
-our $VERSION = "0.9";
+our $VERSION = "1.0";
 
 # If people don't want to deal with OO, we export the main "work" method
 # so they can call it in a simpler way.  We'll see below where we handle this.
@@ -347,7 +347,7 @@ hash reference, contains keys "type", indicating the average type, and
  $cmp->set_method(
      method => &Image::Compare::AVG_THRESHOLD,
      args   => {
-         type  => &Image::Compare::MEAN,
+         type  => &Image::Compare::AVG_THRESHOLD::MEAN,
          value => 35,
      },
  );
@@ -358,15 +358,29 @@ The IMAGE method returns an C<Imager> object of the same dimensions as your
 input images, with each pixel colored to represent the pixel color difference
 between the corresponding pixels in the input.
 
-Its only argument is a boolean.  If the argument is omitted or false, then
-the output image will be grayscale, with black meaning no change and white
-meaning maximum change.  If the argument is a true value, then the output
-will be in color, ramping from pure red at 0 change to pure green at 50% of
-maximum change, and then to pure blue at maximum change.
+Its only argument accepts 0, 1, or an L<Imager::Fountain>.  If the
+argument is omitted or false, then the output image will be grayscale,
+with black meaning no change and white meaning maximum change.  If the
+argument is a true value other than an L<Imager::Fountain>, the output
+will be in color, ramping from pure red at 0 change to pure green at
+50% of maximum change, and then to pure blue at maximum change.
 
  $cmp->set_method(
-     method => &Image::Compare::IMG,
+     method => &Image::Compare::IMAGE,
      args   => 1,   # Output in color
+ );
+
+You may also pass an L<Imager::Fountain> to choose your own color scale.
+
+ use Imager qw/:handy/; # for the NC subroutine
+ use Imager::Fountain;
+
+ $cmp->set_method(
+     method => &Image::Compare::IMAGE,
+     args   => Imager::Fountain->simple(
+         positions => [              0.0,            1.0],
+         colors    => [NC(255, 255, 255), NC(240,18,190)]
+     )     # scale from white (no change) to fuschia (100% change)
  );
 
 =back
